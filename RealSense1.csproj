@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Intel.RealSense">
+      <HintPath>packages\Intel.RealSenseWithNativeDll.2.51.1.1\lib\net5.0\Intel.RealSense.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
