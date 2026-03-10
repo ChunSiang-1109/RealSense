@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Intel.RealSenseWithNativeDll" Version="2.51.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="Intel.RealSense">
       <HintPath>packages\Intel.RealSenseWithNativeDll.2.51.1.1\lib\net5.0\Intel.RealSense.dll</HintPath>
     </Reference>

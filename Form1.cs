@@ -62,25 +62,50 @@ namespace RealSense1
                     using (var frames = pipeline.WaitForFrames(5000))
                     using (var alignedFrames = align.Process(frames).As<FrameSet>())
                     {
-                        if (!isCaptured)
+                        var colorFrame = alignedFrames.ColorFrame;
+                        var depthFrame = alignedFrames.DepthFrame;
+
+                        if (colorFrame == null || depthFrame == null) continue;
+
+                        // Determine which pixel to measure: 
+                        // If the user hasn't clicked (firstPoint is null), use the center.
+                        float targetX, targetY;
+                        bool isLiveMode = (firstPoint == null);
+
+                        if (isLiveMode)
                         {
-                            var colorFrame = alignedFrames.ColorFrame;
-                            var depthFrame = alignedFrames.DepthFrame;
-
-                            Bitmap bitmap = FrameToBitmap(colorFrame);
-                            pictureBox1.Invoke(new Action(() =>
-                            {
-                                pictureBox1.Image?.Dispose();
-                                pictureBox1.Image = bitmap;
-                                lblStatus.Text = "Live - Press Capture to measure";
-                            }));
-
-                            lastDepthFrame?.Dispose();
-                            lastDepthFrame = depthFrame.Clone().As<DepthFrame>();
+                            targetX = intrinsics.width / 2f;
+                            targetY = intrinsics.height / 2f;
                         }
+                        else
+                        {
+                            // Convert the stored UI click back to camera coordinates
+                            float scaleX = (float)intrinsics.width / pictureBox1.Width;
+                            float scaleY = (float)intrinsics.height / pictureBox1.Height;
+                            targetX = firstPoint.Value.X * scaleX;
+                            targetY = firstPoint.Value.Y * scaleY;
+                        }
+
+                        var point3D = Deproject(depthFrame, intrinsics, targetX, targetY);
+                        float distancemm = point3D.Z * 1000;
+
+                        Bitmap bitmap = FrameToBitmap(colorFrame);
+                        pictureBox1.Invoke(new Action(() =>
+                        {
+                            pictureBox1.Image?.Dispose();
+                            pictureBox1.Image = bitmap;
+
+                            if (isLiveMode)
+                                lblStatus.Text = $"LIVE CENTER: {distancemm:F1}mm (Click to Lock Point A)";
+                            else
+                                lblStatus.Text = $"POINT A LOCKED: {distancemm:F1}mm (Click again to Reset)";
+                        }));
+
+                        lastDepthFrame?.Dispose();
+                        lastDepthFrame = depthFrame.Clone().As<DepthFrame>();
                     }
                 }
-                catch { /* Handle errors */ }
+                catch { }
             }
         }
 
@@ -97,85 +122,43 @@ namespace RealSense1
         // --- UPDATED METHOD ---
         private void pictureBox1_MouseClick(object sender, MouseEventArgs e)
         {
-            if (!isCaptured || lastDepthFrame == null) return;
-
             if (firstPoint == null)
             {
-                // Set Point A
+                // Lock the point you just clicked
                 firstPoint = e.Location;
-                lblStatus.Text = "Point A set. Click Point B.";
-                pictureBox1.Invalidate(); // Trigger redraw to show point A
             }
             else
             {
-                // Set Point B
-                secondPoint = e.Location;
-
-                // 1. Math
-                float scaleX = (float)intrinsics.width / pictureBox1.Width;
-                float scaleY = (float)intrinsics.height / pictureBox1.Height;
-
-                var p1 = Deproject(lastDepthFrame, intrinsics, firstPoint.Value.X * scaleX, firstPoint.Value.Y * scaleY);
-                var p2 = Deproject(lastDepthFrame, intrinsics, secondPoint.Value.X * scaleX, secondPoint.Value.Y * scaleY);
-
-                if (p1.Z == 0 || p2.Z == 0)
-                {
-                    lblStatus.Text = "Error: Invalid depth. Try clicking elsewhere.";
-                    firstPoint = null; // Reset
-                    secondPoint = null;
-                    return;
-                }
-
-                float distance = System.Numerics.Vector3.Distance(p1, p2) * 1000;
-                float height = Math.Abs(p1.Y - p2.Y) * 1000;
-
-                // 2. Display
-                lblStatus.Text = $"RESULT: Height: {height:F1}mm | Dist: {distance:F1}mm";
-
-                // 3. Trigger Redraw to show point B
-                pictureBox1.Invalidate();
-
-                // Reset state so user can capture again (removed 'isCaptured = false' so points stay)
-                // If you want points to vanish immediately, keep 'isCaptured = false'.
+                // Revert back to live mode
+                firstPoint = null;
             }
+            pictureBox1.Invalidate();
         }
 
         // --- NEW METHOD: ADD THIS EVENT HANDLER ---
         private void pictureBox1_Paint(object sender, PaintEventArgs e)
         {
-            // Only draw when we are in capture mode
-            if (!isCaptured) return;
-
-            // Use SmoothingMode for cleaner, anti-aliased circles and lines
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            using (Brush redBrush = new SolidBrush(Color.Red))
-            using (Pen dashedPen = new Pen(Color.Red, 2))
+            if (firstPoint == null)
             {
-                // Set the pen style to dashed
-                dashedPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
-
-                int pointSize = 10;
-                int offset = pointSize / 2;
-
-                // 1. Draw Point A
-                if (firstPoint != null)
+                // DRAW LIVE CROSSHAIR (Center)
+                int cx = pictureBox1.Width / 2;
+                int cy = pictureBox1.Height / 2;
+                using (Pen p = new Pen(Color.LimeGreen, 2))
                 {
-                    e.Graphics.FillEllipse(redBrush, firstPoint.Value.X - offset, firstPoint.Value.Y - offset, pointSize, pointSize);
-                    e.Graphics.DrawString("A", this.Font, Brushes.White, firstPoint.Value.X + 5, firstPoint.Value.Y - 15);
+                    e.Graphics.DrawLine(p, cx - 15, cy, cx + 15, cy);
+                    e.Graphics.DrawLine(p, cx, cy - 15, cx, cy + 15);
                 }
-
-                // 2. Draw Point B and the Dashed Line
-                if (secondPoint != null)
+            }
+            else
+            {
+                // DRAW LOCKED POINT A
+                using (Brush redBrush = new SolidBrush(Color.Red))
                 {
-                    e.Graphics.FillEllipse(redBrush, secondPoint.Value.X - offset, secondPoint.Value.Y - offset, pointSize, pointSize);
-                    e.Graphics.DrawString("B", this.Font, Brushes.White, secondPoint.Value.X + 5, secondPoint.Value.Y - 15);
-
-                    // Draw the line connecting A and B
-                    if (firstPoint != null)
-                    {
-                        e.Graphics.DrawLine(dashedPen, firstPoint.Value, secondPoint.Value);
-                    }
+                    int size = 12;
+                    e.Graphics.FillEllipse(redBrush, firstPoint.Value.X - (size / 2), firstPoint.Value.Y - (size / 2), size, size);
+                    e.Graphics.DrawString("POINT A", this.Font, Brushes.Yellow, firstPoint.Value.X + 10, firstPoint.Value.Y - 10);
                 }
             }
         }
